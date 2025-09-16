@@ -1,1 +1,231 @@
 ; codigo de resolucion para el problema A
+	 .include "m328pdef.inc"
+	.cseg
+
+    .org 0x0000
+	    rjmp INICIO
+
+	.org  0x0008
+		rjmp CAMBIAR_ESTADO
+
+	.equ S_ESPERA        = 0  ; 1. En espera – Sistema listo, esperando inicio
+	.equ S_CINTA		 = 1   ; 2. Cinta – La cinta transporta la pieza
+	.equ S_PUNZONADO     = 2   ; 3. Punzonado – Activación del punzón
+	.equ S_CINTA_INVERSA = 3 ; 3. Punzonado – Subirlo cuando termine el timer
+	;DEFINIR UNA SECCION PARA LAS POSIBLES ENTRADAS
+
+	
+	.equ MOVER_CINTA = (1<<PD6) | (0<<PD5)
+	.equ MOVER_PUNZONADORA = (0<<PD6) | (1<<PD5)
+	.equ APAGAR_PUNZONADORA = (0<<PD6) | (0<<PD5)
+	
+	.def ESTADO= r20
+	.def EVENTO= r21
+
+	.org 0x200
+		rjmp INICIO
+
+
+	.equ A = 0b00001010  ; T = 0 S1 = 1 S2	= 0 F1 = 1 F2 = 0
+	.equ B = 0b00000110  ; T = 0 S1 = 0 S2	= 1 F1 = 1 F2 = 0
+	.equ C = 0b00001110  ; T = 1 S1 = 0 S2	= 1 F1 = 1 F2 = 0 
+	.equ D = 0b00000010  ; T = 0 S1 = 0 S2	= 0 F1 = 1 F2 = 0 
+	.equ E = 0b00010101  ; T = 1 S1 = 0 S2	= 1 F1 = 0 F2 = 1 
+	.equ F = 0b00011101  ; T = 1 S1 = 1 S2	= 1 F1 = 0 F2 = 1 
+	.equ G = 0b00000101  ; T = 0 S1 = 0 S2	= 1 F1 = 0 F2 = 1 
+	.equ H = 0b00001101  ; T = 0 S1 = 1 S2	= 1 F1 = 0 F2 = 1 
+	.equ I = 0b00001101  ; T = 0 S1 = 1 S2	= 1 F1 = 1 F2 = 0
+
+	.equ T0_PRELOADL = low(65000)
+	.equ T0_PRELOADH = High(65000)
+; HASTA AQUI CONFIGURAMOS LOS DATOS A UTILIZAR PARA REALIZAR LAS INTERRUPCIONES
+
+
+INICIO:
+`	ldi r16, high(RAMEND) ; Inicializamos en STACK
+	out SPH, r16
+	ldi r16, low(RAMEND)
+	out SPL, r16 
+	
+	ldi  r16, (1<<PCIE1)
+	sts  PCICR, R16
+
+	ldi  r16, 0b00001111
+	sts  PCMSK1, r16
+
+	; Limpiar posible flag pendiente y habilitar interrupciones globales
+	ldi  r16, (1<<PCIF1)
+	out  PCIFR, r16
+
+	sei
+
+	
+	; --- PORTD: PD6, PD5, PD4 como salidas ---
+	ldi  r16, (1<<PD6)|(1<<PD5)|(1<<PD4)
+	out  DDRD, r16
+	
+	; --- PORTB: PB2 como salida ---
+	ldi  r16, (1<<PB2)
+	out  DDRB, r16
+	cbi  PORTB, PB2
+
+
+	; --- PORTC: PC0..PC3 como entradas ---
+	ldi  r16, 0x00
+	out  DDRC, r16
+
+	; (Opcional) Pull-ups internos 
+	ldi  r16, (1<<PC0)|(1<<PC1)|(1<<PC2)|(1<<PC3)
+	out  PORTC, r16
+
+	ldi ESTADO, S_ESPERA
+
+
+    rjmp main
+
+
+; La inicialización donde configuramos, los pines que se van a comportar como salida y entrada en el cidgo, y el timer
+
+
+
+
+
+main:     
+	;Switch para saber que hacer
+
+	rcall retardo ; POR AHORA NO ES NCEARIO
+
+	cpi  ESTADO, S_ESPERA
+    breq ST_ESPERA
+
+    cpi  ESTADO, S_CINTA
+    breq ST_CINTA
+
+	cpi  ESTADO, S_PUNZONADO 
+    breq ST_PUNZONADORA
+
+    rjmp main
+
+; En el main se evalúa el evento, y según que evento este activa las salidas
+
+
+ST_ESPERA: 
+	;sbi PORTD, PD6
+    ldi r16, APAGAR_PUNZONADORA 
+	out PORTD, r16
+    rjmp main
+
+ST_CINTA:
+	ldi r16, MOVER_CINTA
+	out PORTD, r16
+    rjmp main
+
+ST_PUNZONADORA:
+	ldi r16, MOVER_PUNZONADORA
+	out PORTD, r16
+    rjmp main
+; Una primera prueba solo con esperar y mover la cinta
+
+CAMBIAR_ESTADO:
+	push r17
+    in r17, SREG 
+	push r17
+	push r16
+
+	in   EVENTO, PINC
+	andi EVENTO, 0x1F ; Para solo tener en cuenta los pines que se usan
+
+    cpi  ESTADO, S_ESPERA
+    breq ST_ESPERA1
+
+	cpi  ESTADO, S_CINTA
+    breq ST_CINTA1
+
+    rjmp volv                   ; default si no coincide
+
+; -------------------- ESTADO: ESPERA --------------------
+; PRIMER PRUEBA VA A SER UN CICLO COMPLETO
+ST_ESPERA1:
+    ; switch(EVENTO) => A..F
+	;push EVENTO
+	
+    
+    cpi  EVENTO, A ;.equ A = 0b00001010  ; T = 0 S1 = 1 S2	= 0 F1 = 1 F2 = 0
+    breq ESPERA_A
+
+	;cpi  EVENTO, G ;.equ G = 0b00000101  ; T = 0 S1 = 0 S2	= 1 F1 = 0 F2 = 1
+   ; breq ESPERA_G
+
+	rjmp volv
+
+ESPERA_A:
+    ldi ESTADO, S_CINTA
+    rjmp volv
+
+;ESPERA_G:
+   ; ldi ESTADO, S_PUNZONADO
+   ; rjmp volv
+; -------------------- ESTADO: CINTA --------------------
+ST_CINTA1:
+
+	cpi  EVENTO, B ;.equ B = 0b00000110  ; T = 0 S1 = 0 S2	= 1 F1 = 1 F2 = 0
+    breq ESPERA_B1
+
+	rjmp volv
+
+ESPERA_B1:
+    ldi ESTADO, S_PUNZONADO	
+    rjmp volv
+
+; -------------------- ESTADO: PUNZONADORA --------------------
+ST_PUNZONADORA1:
+
+	cpi  EVENTO, E ;.equ E = 0b00010101  ; T = 1 S1 = 0 S2	= 1 F1 = 0 F2 = 1 
+    breq PUNZONADORA_E1
+
+	rjmp volv
+
+PUNZONADORA_E1:
+    ldi ESTADO, S_ESPERA
+    rjmp set_timer
+
+set_timer:
+	; Timer1 en modo normal
+    LDI r16, 0x00
+    STS TCCR1A, r16
+
+    ; Prescaler = clk/1 (puedes usar clk/1024 para hacerlo más lento)
+    LDI r16, 0x05
+    STS TCCR1B, r16
+
+	rjmp 
+
+volv:
+	pop r16
+	pop r17
+	out SREG, r17
+	pop r17
+
+	;pop EVENTO
+    reti
+
+
+retardo:
+
+	; --- Demora con Timer1 por overflow (busy-wait) ---
+		ldi  r16, (1<<TOV1)
+		sts  TIFR1, r16            ; limpia bandera previa
+
+		ldi  r16, high(0xFCF3)     ; ~50 ms con /1024
+		sts  TCNT1H, r16
+		ldi  r16, low(0xFCF3)
+		sts  TCNT1L, r16
+
+	espera_t1:
+		lds  r16, TIFR1
+		sbrs r16, TOV1             ; ¿overflow ya ocurrió?
+		rjmp espera_t1            ; no: seguir esperando
+		ldi  r16, (1<<TOV1)
+		sts  TIFR1, r16            ; limpia TOV1 para próximas veces
+
+	ret
