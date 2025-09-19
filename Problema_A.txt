@@ -12,14 +12,13 @@
 	.equ S_PUNZONADO     = 2   ; 3. Punzonado – Activación del punzón
 	.equ S_CINTA_INVERSA = 3 ; 3. Punzonado – Subirlo cuando termine el timer
 	.equ S_ESPERA2        = 4  ; 1. En espera – Sistema listo, esperando inicio
-	.equ S_PUNZONADO2     = 5   ; 3. Punzonado – Activación del punzón
 	;DEFINIR UNA SECCION PARA LAS POSIBLES ENTRADAS
 
 	
-	.equ MOVER_CINTA = (1<<PD6) | (0<<PD5) | (0<<PD4)
-	.equ MOVER_PUNZONADORA = (0<<PD6) | (1<<PD5) | (0<<PD4)
-	.equ APAGAR_PUNZONADORA = (0<<PD6) | (0<<PD5) | (0<<PD4)
-	.equ MOVER_CINTA_INVERSA = (0<<PD6) | (0<<PD5) | (1<<PD4) 
+	.equ MOVER_CINTA = (0<<PD6) | (0<<PD5) | (1<<PD3)
+	.equ MOVER_PUNZONADORA = (1<<PD6) | (0<<PD5)|(0<<PD3)
+	.equ APAGAR_PUNZONADORA = (0<<PD6) | (0<<PD5) | (0<<PD3)
+	.equ MOVER_CINTA_INVERSA = (0<<PD6) | (1<<PD5) | (0<<PD3)
 
 	.def ESTADO= r20
 	.def EVENTO= r21
@@ -32,11 +31,8 @@
 	.equ B = 2
 	.equ C =  3
 	.equ D = 4
-	.equ E = 5
-	.equ F = 6
-	.equ G = 0
-	.equ H = 0
-	.equ I = 0
+
+
 
 	.equ T0_PRELOADL = low(65000)
 	.equ T0_PRELOADH = High(65000)
@@ -68,7 +64,7 @@ INICIO:
 
 	
 	; --- PORTD: PD6, PD5, PD4 como salidas ---
-	ldi  r16, (1<<PD6)|(1<<PD5)|(1<<PD4)
+	ldi  r16, (1<<PD6)|(1<<PD5)|(1<<PD4)|(1<<PD3)
 	out  DDRD, r16
 	
 	ldi EVENTO, 0
@@ -94,7 +90,7 @@ main:
     breq ST_ESPERA
 
 	cpi  ESTADO, S_ESPERA2
-    breq ST_ESPERA2
+    breq ST_ESPERA
 
     cpi  ESTADO, S_CINTA
     breq ST_CINTA
@@ -102,8 +98,6 @@ main:
 	cpi  ESTADO, S_PUNZONADO 
     breq ST_PUNZONADORA
 
-	cpi  ESTADO, S_PUNZONADO2 
-    breq ST_PUNZONADORA2
 
 	cpi ESTADO, S_CINTA_INVERSA 
 	breq ST_CINTA_INVERSA 
@@ -125,18 +119,114 @@ ST_CINTA:
 	out PORTD, r16
     rjmp main
 
-ST_ESPERA2: 
-	;sbi PORTD, PD6
-    ldi r16, APAGAR_PUNZONADORA 
-	out PORTD, r16
-    rjmp main
 
 ST_PUNZONADORA:
 	ldi r16, MOVER_PUNZONADORA
 	out PORTD, r16
     rjmp main
 
-ST_PUNZONADORA2:
-	ldi r16, MOVER_PUNZONADORA
+ST_CINTA_INVERSA:
+	ldi r16, MOVER_CINTA_INVERSA
 	out PORTD, r16
-    rjmp main
+	rjmp main
+; Una primera prueba solo con esperar y mover la cinta
+
+CAMBIAR_ESTADO:
+	push r17
+    in r17, SREG 
+	push r17
+	
+	inc EVENTO
+	
+    cpi  ESTADO, S_ESPERA
+    breq ST_ESPERA1
+
+	cpi  ESTADO, S_CINTA
+    breq ST_CINTA1
+
+	cpi  ESTADO, S_PUNZONADO
+    breq ST_PUNZONADORA1
+
+	cpi  ESTADO, S_ESPERA2
+    breq ST_ESPERA2
+
+    rjmp volv                   ; default si no coincide
+
+; -------------------- ESTADO: ESPERA --------------------
+; PRIMER PRUEBA VA A SER UN CICLO COMPLETO
+ST_ESPERA1:
+
+    cpi  EVENTO, A ;1
+	breq ESPERA_A
+	
+	rjmp volv
+
+ESPERA_A:
+    ldi ESTADO, S_CINTA
+    rjmp volv
+
+
+; -------------------- ESTADO: CINTA --------------------
+ST_CINTA1:
+
+	cpi  EVENTO, B ;2
+    breq ESPERA_B1
+
+	rjmp volv
+
+ESPERA_B1:
+    ldi ESTADO, S_PUNZONADO	
+    rjmp volv
+
+; -------------------- ESTADO: PUNZONADORA --------------------
+ST_PUNZONADORA1:
+
+	cpi  EVENTO, C ;3
+    breq PUNZONADORA_E1
+
+	rjmp volv
+	 
+PUNZONADORA_E1:
+	ldi ESTADO, S_CINTA_INVERSA
+	rjmp volv
+; -------------------- ESTADO: S_CINTA_INVERSA --------------------
+ST_ESPERA2:
+
+	cpi  EVENTO, D ;4
+    breq esperar_nuevo
+
+	rjmp volv
+	 
+esperar_nuevo:
+	ldi ESTADO, S_ESPERA2
+	rjmp volv
+
+volv:
+	;pop r16
+	pop r17
+	out SREG, r17
+	pop r17
+
+	;pop EVENTO
+    reti
+
+
+retardo:
+
+	; --- Demora con Timer1 por overflow (busy-wait) ---
+		ldi  r16, (1<<TOV1)
+		sts  TIFR1, r16            ; limpia bandera previa
+
+		ldi  r16, high(0xFCF3)     ; ~50 ms con /1024
+		sts  TCNT1H, r16
+		ldi  r16, low(0xFCF3)
+		sts  TCNT1L, r16
+
+	espera_t1:
+		lds  r16, TIFR1
+		sbrs r16, TOV1             ; ¿overflow ya ocurrió?
+		rjmp espera_t1            ; no: seguir esperando
+		ldi  r16, (1<<TOV1)
+		sts  TIFR1, r16            ; limpia TOV1 para próximas veces
+
+	ret	
