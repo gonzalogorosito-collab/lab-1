@@ -1,11 +1,23 @@
  .include "m328pdef.inc"
 	.cseg
 
+	.equ TX_BUF_SIZE = 256				; power of two
+	.equ TX_BUF_MASK = TX_BUF_SIZE - 1		; 0x0F for size 1
+	.equ _F_CPU = 16000000
+	.equ _BAUD = 9600
+	.equ _BPS = (_F_CPU/16/_BAUD) - 1
+
+	
+
     .org 0x0000
 	    rjmp INICIO
 
 	.org  0x001A
 		rjmp CAMBIAR_ESTADO
+
+	.org 0x0024 
+		rjmp USART_RX_ISR	; Recieved USART data
+
 
 	.equ S_ESPERA        = 0  ; 1. En espera – Sistema listo, esperando inicio
 	.equ S_CINTA		 = 1   ; 2. Cinta – La cinta transporta la pieza
@@ -26,10 +38,10 @@
 	.org 0x200
 		rjmp INICIO
 
-
+	
 	.equ A = 1
 	.equ B = 2
-	.equ C =  3
+	.equ C = 3
 	.equ D = 4
 
 
@@ -58,18 +70,32 @@ INICIO:
     STS TIMSK1, r16
 
 
+	ldi r16, low(_BPS)
+	ldi r17, high(_BPS)
+	; Set baud rate
+	sts UBRR0H, r17
+	sts UBRR0L, r16
+	; Enable receiver and transmitter, and interruptions
+	ldi r16, (1<<RXEN0)|(1<<TXEN0)|(1<<RXCIE0)
+	sts UCSR0B,r16
+	; Set frame format: 8data, 2stop bit
+	ldi r16, (0<<USBS0)|(3<<UCSZ00)
+	sts UCSR0C,r16
+
+
 	sei
 
 	
 
 	
 	; --- PORTD: PD6, PD5, PD4 como salidas ---
-	ldi  r16, (1<<PD6)|(1<<PD5)|(1<<PD4)|(1<<PD3)
+	ldi  r16, (1<<PD6)|(1<<PD5)|(1<<PD3)
 	out  DDRD, r16
 	
 	ldi EVENTO, 0
 	
 	ldi ESTADO, S_ESPERA
+	
 	
 
     rjmp main
@@ -89,8 +115,6 @@ main:
 	cpi  ESTADO, S_ESPERA
     breq ST_ESPERA
 
-	cpi  ESTADO, S_ESPERA2
-    breq ST_ESPERA
 
     cpi  ESTADO, S_CINTA
     breq ST_CINTA
@@ -102,6 +126,8 @@ main:
 	cpi ESTADO, S_CINTA_INVERSA 
 	breq ST_CINTA_INVERSA 
 
+	cpi  ESTADO, S_ESPERA2
+    breq ST_ESPERAA2
 
     rjmp main
 
@@ -129,6 +155,12 @@ ST_CINTA_INVERSA:
 	ldi r16, MOVER_CINTA_INVERSA
 	out PORTD, r16
 	rjmp main
+
+
+ST_ESPERAA2: 
+    ldi r16, APAGAR_PUNZONADORA 
+	out PORTD, r16
+    rjmp main
 ; Una primera prueba solo con esperar y mover la cinta
 
 CAMBIAR_ESTADO:
@@ -147,67 +179,63 @@ CAMBIAR_ESTADO:
 	cpi  ESTADO, S_PUNZONADO
     breq ST_PUNZONADORA1
 
-	cpi  ESTADO, S_ESPERA2
-    breq ST_ESPERA2
+	cpi  ESTADO, S_CINTA_INVERSA
+    breq ST_CINTA_INVERSA1
+
+    cpi  ESTADO, S_ESPERA2
+    breq ST_ESPERA2_1
 
     rjmp volv                   ; default si no coincide
 
-; -------------------- ESTADO: ESPERA --------------------
-; PRIMER PRUEBA VA A SER UN CICLO COMPLETO
+; -------------------- ESTADO: ESPERA (0) --------------------
 ST_ESPERA1:
-
-    cpi  EVENTO, A ;1
-	breq ESPERA_A
-	
-	rjmp volv
-
-ESPERA_A:
-    ldi ESTADO, S_CINTA
+    cpi  EVENTO, A        ; 1
+    brne volv
+    ldi  ESTADO, S_CINTA
+    
     rjmp volv
 
-
-; -------------------- ESTADO: CINTA --------------------
+; -------------------- ESTADO: CINTA (1) --------------------
 ST_CINTA1:
-
-	cpi  EVENTO, B ;2
-    breq ESPERA_B1
-
-	rjmp volv
-
-ESPERA_B1:
-    ldi ESTADO, S_PUNZONADO	
+    cpi  EVENTO, B        ; 2
+    brne volv
+    ldi  ESTADO, S_PUNZONADO
+    
     rjmp volv
 
-; -------------------- ESTADO: PUNZONADORA --------------------
+; -------------------- ESTADO: PUNZONADO (2) ----------------
 ST_PUNZONADORA1:
+    cpi  EVENTO, C        ; 3
+    brne volv
+    ldi  ESTADO, S_CINTA_INVERSA
+    
+    rjmp volv
 
-	cpi  EVENTO, C ;3
-    breq PUNZONADORA_E1
+; -------------------- ESTADO: CINTA_INVERSA (3) ------------
+ST_CINTA_INVERSA1:
+    cpi  EVENTO, D        ; 4
+    brne volv
+    ldi  ESTADO, S_ESPERA2      ; o S_ESPERA si querés cerrar el ciclo aquí
+    
+    rjmp volv
 
-	rjmp volv
-	 
-PUNZONADORA_E1:
-	ldi ESTADO, S_CINTA_INVERSA
-	rjmp volv
-; -------------------- ESTADO: S_CINTA_INVERSA --------------------
-ST_ESPERA2:
-
-	cpi  EVENTO, D ;4
-    breq esperar_nuevo
-
-	rjmp volv
+; -------------------- ESTADO: ESPERA2 (4) ------------------
+ST_ESPERA2_1:
+    ; Si querés que el "último" salte al inicio:
+    cpi  EVENTO, A        ; reusamos A para cerrar el ciclo
+    brne volv
+    ldi  ESTADO, S_ESPERA
+    
+    rjmp volv
 	 
 esperar_nuevo:
 	ldi ESTADO, S_ESPERA2
 	rjmp volv
 
 volv:
-	;pop r16
 	pop r17
 	out SREG, r17
 	pop r17
-
-	;pop EVENTO
     reti
 
 
@@ -230,3 +258,26 @@ retardo:
 		sts  TIFR1, r16            ; limpia TOV1 para próximas veces
 
 	ret	
+
+; === ISR de recepción USART: recibe '0'..'4' y los mapea a estados 0..4 ===
+USART_RX_ISR:
+    push r16
+    in   r16, SREG
+    push r16
+
+    lds  r16, UDR0              ; leer dato recibido limpia RXC
+
+    ; Si llega ASCII '0'..'4', convertir a 0..4 y cargar ESTADO
+    cpi  r16, '0'
+    brlo usart_end              ; < '0' ? ignorar
+    cpi  r16, '4'+1
+    brsh usart_end              ; > '4' ? ignorar
+    subi r16, '0'               ; '0'?0, '1'?1, ..., '4'?4
+    mov  ESTADO, r16
+    ;clr  EVENTO                 ; opcional: reiniciar evento al cambiar estado por comando
+
+usart_end:
+    pop  r16
+    out  SREG, r16
+    pop  r16
+    reti
