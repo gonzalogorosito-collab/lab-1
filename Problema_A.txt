@@ -1,3 +1,11 @@
+;
+; AssemblerApplication31.asm
+;
+; Created: 9/20/2025 3:34:02 PM
+; Author : isacm
+;
+
+; Macros para brne y breq
 .macro BREQ_RJMP 
     BRNE end
     rjmp @0
@@ -11,19 +19,64 @@
 	.endmacro
 
  .include "m328pdef.inc"
-	.cseg
 
+; Constantes a utilizar
+
+	; Para USART
 	.equ TX_BUF_SIZE = 256				; power of two
 	.equ TX_BUF_MASK = TX_BUF_SIZE - 1		; 0x0F for size 1
 	.equ _F_CPU = 16000000
 	.equ _BAUD = 9600
 	.equ _BPS = (_F_CPU/16/_BAUD) - 1
-
 	
+	; Tipos de carga
+	.equ CARGA_LIVIANA = 6
+	.equ CARGA_MEDIA = 7
+	.equ CARGA_PESADA = 8
 
-    .org 0x0000
-	    rjmp INICIO
+	; Estados
+	.equ S_ESPERA        = 0  ; 1. En espera – Sistema listo, esperando inicio
+	.equ S_CINTA		 = 1   ; 2. Cinta – La cinta transporta la pieza
+	.equ S_POSICIONADO   = 2
+	.equ S_PUNZONADO     = 3   ; 3. Punzonado – Activación del punzón
+	.equ S_CINTA_INVERSA = 4 ; 3. Punzonado – Subirlo cuando termine el timer
+	.equ S_ESPERA2        = 5  ; 1. En espera – Sistema listo, esperando inicio
 
+	; Salidas 
+	.equ MOVER_CINTA = (0<<PD6) | (0<<PD5) | (1<<PD3)
+	.equ MOVER_PUNZONADORA = (1<<PD6) | (0<<PD5) | (0<<PD3)
+	.equ APAGAR_PUNZONADORA = (0<<PD6) | (0<<PD5) | (0<<PD3)
+	.equ MOVER_CINTA_INVERSA = (0<<PD6) | (1<<PD5) | (0<<PD3)
+
+	; Registros a utilizar
+	.def TIPO_Carga= r19
+	.def ESTADO= r20
+	.def EVENTO= r21
+
+; Constantes para evaluar el cambio de estado
+	;Liviano
+	.equ A = 1
+	.equ B = 4
+	.equ C = 6
+	.equ D = 9
+	.equ E = 12
+
+	;Media
+	.equ A2 = 1
+	.equ B2 = 5
+	.equ C2 = 7
+	.equ D2 = 10
+	.equ E2 = 13
+
+	; Pesada
+	.equ A3 = 1
+	.equ B3 = 6
+	.equ C3 = 10
+	.equ D3 = 14
+	.equ E3 = 17
+
+
+; Inicializacion de interrupciones
 	.org 0x001A
 		rjmp CAMBIAR_ESTADO
 
@@ -31,54 +84,10 @@
 		rjmp USART_RX_ISR	; Recieved USART data
 
 
-	.equ CARGA_LIVIANA = 6
-	.equ CARGA_MEDIA = 7
-	.equ CARGA_PESADA = 8
-
-
-	.equ S_ESPERA        = 0  ; 1. En espera – Sistema listo, esperando inicio
-	.equ S_CINTA		 = 1   ; 2. Cinta – La cinta transporta la pieza
-	.equ S_POSICIONADO   = 2
-	.equ S_PUNZONADO     = 3   ; 3. Punzonado – Activación del punzón
-	.equ S_CINTA_INVERSA = 4 ; 3. Punzonado – Subirlo cuando termine el timer
-	.equ S_ESPERA2        = 5  ; 1. En espera – Sistema listo, esperando inicio
-	;DEFINIR UNA SECCION PARA LAS POSIBLES ENTRADAS
-
-	
-	.equ MOVER_CINTA = (0<<PD6) | (0<<PD5) | (1<<PD3)
-	.equ MOVER_PUNZONADORA = (1<<PD6) | (0<<PD5) | (0<<PD3)
-	.equ APAGAR_PUNZONADORA = (0<<PD6) | (0<<PD5) | (0<<PD3)
-	.equ MOVER_CINTA_INVERSA = (0<<PD6) | (1<<PD5) | (0<<PD3)
-
-	.def TIPO_Carga= r19
-	.def ESTADO= r20
-	.def EVENTO= r21
 
 	.org 0x200
 		rjmp INICIO
 
-	
-
-	.equ A = 1
-	.equ B = 4
-	.equ C = 6
-	.equ D = 9
-	.equ E = 12
-
-
-	.equ A2 = 1
-	.equ B2 = 5
-	.equ C2 = 7
-	.equ D2 = 10
-	.equ E2 = 13
-
-	.equ A3 = 1
-	.equ B3 = 6
-	.equ C3 = 10
-	.equ D3 = 14
-	.equ E3 = 17
-
-; HASTA AQUI CONFIGURAMOS LOS DATOS A UTILIZAR PARA REALIZAR LAS INTERRUPCIONES
 
 
 INICIO:
@@ -87,7 +96,7 @@ INICIO:
 	ldi r16, low(RAMEND)
 	out SPL, r16 
 	
-	 ; ---------- TIMER1: se usará SOLO para retardos ----------
+	 ; ---------- TIMER1 ----------
     ; Modo normal
     ldi r16, 0x00
     sts TCCR1A, r16
@@ -99,28 +108,35 @@ INICIO:
     LDI r16, (1<<TOIE1)
     STS TIMSK1, r16
 
+	; ---------- Configuramos USART ---------- 
 
 	ldi r16, low(_BPS)
 	ldi r17, high(_BPS)
 	; Set baud rate
 	sts UBRR0H, r17
 	sts UBRR0L, r16
-	; Enable receiver and transmitter, and interruptions
+	; Configurar la recepcion, transmicion e interrupcion de USART
 	ldi r16, (1<<RXEN0)|(1<<TXEN0)|(1<<RXCIE0)
 	sts UCSR0B,r16
-	; Set frame format: 8data, 2stop bit
-	ldi r16, (0<<USBS0)|(3<<UCSZ00)
+	; COnfigurar los datos de transmicion y de parada; 8data, 2stop bit
+	ldi r16, (1<<USBS0)|(3<<UCSZ00)
 	sts UCSR0C,r16
 
 
 	sei
 
-	 
-   
-	; --- PORTD: PD6, PD5, PD4 como salidas ---
-	ldi  r16, (1<<PD6)|(1<<PD5)|(1<<PD3)
+	; --- PORTD setup ---
+	; Salidas: PD6, PD5, PD4 (READY), PD3
+	; Entrada: PD2 (START) con pull-up
+	ldi  r16, (1<<PD6)|(1<<PD5)|(1<<PD4)|(1<<PD3)
 	out  DDRD, r16
-	
+
+	; Pull-up en START
+	sbi  PORTD, PD2
+
+	; READY = 1 (listo al inicio)
+	sbi  PORTD, PD4
+
 	ldi EVENTO, 0
 	
 	ldi ESTADO, S_ESPERA
@@ -138,8 +154,6 @@ INICIO:
 
 main:     
 	;Switch para saber que hacer
-
-	
 
 	cpi  ESTADO, S_ESPERA
     BREQ_RJMP ST_ESPERA
@@ -164,55 +178,57 @@ main:
 ; En el main se evalúa el evento, y según que evento este activa las salidas
 
 
-ST_ESPERA: 
-	;sbi PORTD, PD6
-	cli
-	sei
-    ldi r16, APAGAR_PUNZONADORA 
-	out PORTD, r16
+ST_ESPERA:
+    ; Mantener salidas apagadas
+    ldi  r16, APAGAR_PUNZONADORA
+    out  PORTD, r16
+
+    ; READY = 1 mientras esperamos
+    sbi  PORTD, PD4
+
+    ; ¿START presionado? (PD2 con pull-up: 0 = presionado)
+    sbic PIND, PD2          ; salta si PD2==0 (presionado)
+    rjmp no_start
+
+    ; Inicio: bajamos READY y arrancamos ciclo
+    cbi  PORTD, PD4         ; READY = 0
+    clr  EVENTO
+    ldi  ESTADO, S_CINTA
+    rjmp main
+
+no_start:
     rjmp main
 
 ST_CINTA:
-	cli
-	;rcall retardo_1s_t1
-	sei
-	ldi r16, MOVER_CINTA
-	out PORTD, r16
+    ldi  r16, MOVER_CINTA
+    out  PORTD, r16
+    cbi  PORTD, PD4         ; READY = 0 (en proceso)
     rjmp main
 
-
 ST_PUNZONADORA:
-	cli
-	;rcall retardo_1s_t1
-	sei
-	ldi r16, MOVER_PUNZONADORA
-	out PORTD, r16
+    ldi  r16, MOVER_PUNZONADORA
+    out  PORTD, r16
+    cbi  PORTD, PD4
     rjmp main
 
 ST_CINTA_INVERSA:
-	cli
-	;rcall retardo_1s_t1
-	sei
-	ldi r16, MOVER_CINTA_INVERSA
-	out PORTD, r16
-	rjmp main
+    ldi  r16, MOVER_CINTA_INVERSA
+    out  PORTD, r16
+    cbi  PORTD, PD4
+    rjmp main
 
 ST_POSICIONADO:
-	cli
-	;rcall retardo_1s_t1
-	sei
-	ldi r16, APAGAR_PUNZONADORA 
-	out PORTD, r16
+    ldi  r16, APAGAR_PUNZONADORA
+    out  PORTD, r16
+    cbi  PORTD, PD4
     rjmp main
 
-ST_ESPERAA2: 
-	cli
-	;rcall retardo_1s_t1
-	sei
-    ldi r16, APAGAR_PUNZONADORA 
-	out PORTD, r16
+ST_ESPERAA2:
+    ldi  r16, APAGAR_PUNZONADORA
+    out  PORTD, r16
+    cbi  PORTD, PD4
     rjmp main
-; Una primera prueba solo con esperar y mover la cinta
+
 
 CAMBIAR_ESTADO:
 	push r17
@@ -302,10 +318,6 @@ ST_CINTA1_M:
 ST_CINTA1_P:
     ; ejemplo: pesada necesita más “tiempo de cinta”
     cpi  EVENTO, B3
-/*    BRNE_RJMP cinta1p_keep
-    ; si quisieras exigir 1 tick extra: cambiá arriba a cpi EVENTO, B+1 (o usa otro umbral)
-cinta1p_keep:
-    cpi  EVENTO, B*/
     BRNE_RJMP volv
     ldi  ESTADO, S_POSICIONADO
     rjmp volv
@@ -424,20 +436,23 @@ ST_ESPERA2_1_L:
     cpi  EVENTO, A
     BRNE_RJMP volv
     ldi  ESTADO, S_ESPERA
-    rjmp volv
+    sbi  PORTD, PD4         ; READY = 1 (ciclo terminado)
+    rjmp  volv
 
+; Igual en _M y _P:
 ST_ESPERA2_1_M:
     cpi  EVENTO, A2
     BRNE_RJMP volv
     ldi  ESTADO, S_ESPERA
-    rjmp volv
+    sbi  PORTD, PD4
+    rjmp  volv
 
 ST_ESPERA2_1_P:
     cpi  EVENTO, A3
     BRNE_RJMP volv
     ldi  ESTADO, S_ESPERA
-    rjmp volv
-
+    sbi  PORTD, PD4
+    rjmp  volv
 
 volv:
 	pop r17
@@ -484,7 +499,7 @@ delay:
 	out sreg, r16
 	pop r16
     ret
-
+/*
 USART_WRITE_BYTE:
     push r17
     push r18
@@ -550,7 +565,10 @@ SEND_MESSAGE:
 
 	SEND_MESSAGE_END:
 	pop r16
-	ret
+	ret*/
+
+
+
 
 
 
