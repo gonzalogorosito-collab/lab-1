@@ -1,10 +1,14 @@
-;
-; AssemblerApplication31.asm
-;
-; Created: 9/20/2025 3:34:02 PM
-; Author : isacm
-;
+.macro BREQ_RJMP 
+    BRNE end
+    rjmp @0
+	end:
+	.endmacro
 
+.macro BRNE_RJMP 
+    breq end
+    rjmp @0
+	end:
+	.endmacro
 
  .include "m328pdef.inc"
 	.cseg
@@ -20,16 +24,16 @@
     .org 0x0000
 	    rjmp INICIO
 
-	.org  0x001A
+	.org 0x001A
 		rjmp CAMBIAR_ESTADO
 
 	.org 0x0024 
 		rjmp USART_RX_ISR	; Recieved USART data
 
 
-	.equ CARGA_LIVIANA = 5
-	.equ CARGA_MEDIA = 6
-	.equ CARGA_PESADA = 7
+	.equ CARGA_LIVIANA = 6
+	.equ CARGA_MEDIA = 7
+	.equ CARGA_PESADA = 8
 
 
 	.equ S_ESPERA        = 0  ; 1. En espera – Sistema listo, esperando inicio
@@ -54,15 +58,26 @@
 		rjmp INICIO
 
 	
+
 	.equ A = 1
-	.equ B = 2
-	.equ C = 3
-	.equ D = 4
-	.equ E = 5
+	.equ B = 4
+	.equ C = 6
+	.equ D = 9
+	.equ E = 12
 
 
-	.equ T0_PRELOADL = low(65000)
-	.equ T0_PRELOADH = High(65000)
+	.equ A2 = 1
+	.equ B2 = 5
+	.equ C2 = 7
+	.equ D2 = 10
+	.equ E2 = 13
+
+	.equ A3 = 1
+	.equ B3 = 6
+	.equ C3 = 10
+	.equ D3 = 14
+	.equ E3 = 17
+
 ; HASTA AQUI CONFIGURAMOS LOS DATOS A UTILIZAR PARA REALIZAR LAS INTERRUPCIONES
 
 
@@ -72,13 +87,13 @@ INICIO:
 	ldi r16, low(RAMEND)
 	out SPL, r16 
 	
-	; Timer1 en modo normal
-    LDI r16, 0x00
-    STS TCCR1A, r16
-
-    ; Prescaler = clk/1 (puedes usar clk/1024 para hacerlo más lento)
-    LDI r16, 0x05
-    STS TCCR1B, r16
+	 ; ---------- TIMER1: se usará SOLO para retardos ----------
+    ; Modo normal
+    ldi r16, 0x00
+    sts TCCR1A, r16
+    ; Prescaler = /1024 -> CS12=1, CS11=0, CS10=1 (0b101 = 0x05)
+    ldi r16, 0x05
+    sts TCCR1B, r16
 
 	; Habilitar interrupción por desbordamiento de Timer1
     LDI r16, (1<<TOIE1)
@@ -100,15 +115,16 @@ INICIO:
 
 	sei
 
-	
+	 
+   
 	; --- PORTD: PD6, PD5, PD4 como salidas ---
 	ldi  r16, (1<<PD6)|(1<<PD5)|(1<<PD3)
 	out  DDRD, r16
 	
-	ldi EVENTO, 1
+	ldi EVENTO, 0
 	
 	ldi ESTADO, S_ESPERA
-	
+	ldi TIPO_Carga, CARGA_PESADA 
 	
 
     rjmp main
@@ -122,28 +138,27 @@ INICIO:
 
 main:     
 	;Switch para saber que hacer
+
 	
-	rcall retardo ; POR AHORA NO ES NCEARIO
 
 	cpi  ESTADO, S_ESPERA
-    breq ST_ESPERA
-
+    BREQ_RJMP ST_ESPERA
 
     cpi  ESTADO, S_CINTA
-    breq ST_CINTA
+    BREQ_RJMP ST_CINTA
 
 	cpi  ESTADO, S_POSICIONADO 
-    breq ST_POSICIONADO
+    BREQ_RJMP ST_POSICIONADO
 
 	cpi  ESTADO, S_PUNZONADO 
-    breq ST_PUNZONADORA
+    BREQ_RJMP ST_PUNZONADORA
 
 	cpi ESTADO, S_CINTA_INVERSA 
-	breq ST_CINTA_INVERSA 
+	BREQ_RJMP ST_CINTA_INVERSA 
 
 	cpi  ESTADO, S_ESPERA2
-    breq ST_ESPERAA2
-
+    BREQ_RJMP ST_ESPERAA2
+	
     rjmp main
 
 ; En el main se evalúa el evento, y según que evento este activa las salidas
@@ -151,32 +166,49 @@ main:
 
 ST_ESPERA: 
 	;sbi PORTD, PD6
+	cli
+	sei
     ldi r16, APAGAR_PUNZONADORA 
 	out PORTD, r16
     rjmp main
 
 ST_CINTA:
+	cli
+	;rcall retardo_1s_t1
+	sei
 	ldi r16, MOVER_CINTA
 	out PORTD, r16
     rjmp main
 
 
 ST_PUNZONADORA:
+	cli
+	;rcall retardo_1s_t1
+	sei
 	ldi r16, MOVER_PUNZONADORA
 	out PORTD, r16
     rjmp main
 
 ST_CINTA_INVERSA:
+	cli
+	;rcall retardo_1s_t1
+	sei
 	ldi r16, MOVER_CINTA_INVERSA
 	out PORTD, r16
 	rjmp main
 
 ST_POSICIONADO:
+	cli
+	;rcall retardo_1s_t1
+	sei
 	ldi r16, APAGAR_PUNZONADORA 
 	out PORTD, r16
     rjmp main
 
 ST_ESPERAA2: 
+	cli
+	;rcall retardo_1s_t1
+	sei
     ldi r16, APAGAR_PUNZONADORA 
 	out PORTD, r16
     rjmp main
@@ -186,80 +218,226 @@ CAMBIAR_ESTADO:
 	push r17
     in r17, SREG 
 	push r17
+	rcall delay
 	
 	inc EVENTO
 	
     cpi  ESTADO, S_ESPERA
-    breq ST_ESPERA1
+    BREQ_RJMP ST_ESPERA1
 
 	cpi  ESTADO, S_CINTA
-    breq ST_CINTA1
+    BREQ_RJMP ST_CINTA1
 
 	cpi ESTADO, S_POSICIONADO
-	breq ST_POSICIONADO1
+	BREQ_RJMP ST_POSICIONADO1
 
 	cpi  ESTADO, S_PUNZONADO
-    breq ST_PUNZONADORA1
+    BREQ_RJMP ST_PUNZONADORA1
 
 	cpi  ESTADO, S_CINTA_INVERSA
-    breq ST_CINTA_INVERSA1
+    BREQ_RJMP ST_CINTA_INVERSA1
 
     cpi  ESTADO, S_ESPERA2
-    breq ST_ESPERA2_1
+    BREQ_RJMP ST_ESPERA2_1
 
     rjmp volv                   ; default si no coincide
-
 ; -------------------- ESTADO: ESPERA (0) --------------------
 ST_ESPERA1:
-    cpi  EVENTO, A        ; 1
-    brne volv
-    ldi  ESTADO, S_CINTA
-    
+    ; switch (TIPO_Carga)
+    cpi  TIPO_Carga, CARGA_LIVIANA
+    BREQ_RJMP ST_ESPERA1_L
+    cpi  TIPO_Carga, CARGA_MEDIA
+    BREQ_RJMP ST_ESPERA1_M
+    cpi  TIPO_Carga, CARGA_PESADA
+    BREQ_RJMP ST_ESPERA1_P
     rjmp volv
+
+ST_ESPERA1_L:             ; liviana
+    cpi  EVENTO, A
+    BRNE_RJMP volv
+    ldi  ESTADO, S_CINTA          ; <-- cambialo si querés
+    rjmp volv
+
+ST_ESPERA1_M:             ; media
+    cpi  EVENTO, A2
+    BRNE_RJMP volv
+    ldi  ESTADO, S_CINTA          ; (ej.: podrías pedir 2 ticks: cpi EVENTO, A+1)
+    rjmp volv
+
+ST_ESPERA1_P:             ; pesada
+    cpi  EVENTO, A3
+    BRNE_RJMP volv
+    ldi  ESTADO, S_CINTA
+    rjmp volv
+
+ST_ESPERA1_DEF:           ; default
+    cpi  EVENTO, A
+    BRNE_RJMP volv
+    ldi  ESTADO, S_CINTA
+    rjmp volv
+
 
 ; -------------------- ESTADO: CINTA (1) --------------------
 ST_CINTA1:
-    cpi  EVENTO, B        ; 2
-    brne volv
-    ldi  ESTADO, S_POSICIONADO
-    
+    cpi  TIPO_Carga, CARGA_LIVIANA
+    BREQ_RJMP ST_CINTA1_L
+    cpi  TIPO_Carga, CARGA_MEDIA
+    BREQ_RJMP ST_CINTA1_M
+    cpi  TIPO_Carga, CARGA_PESADA
+    BREQ_RJMP ST_CINTA1_P
+	rjmp volv
+   
+ST_CINTA1_L:
+    cpi  EVENTO, B
+    BRNE_RJMP volv
+    ldi  ESTADO, S_POSICIONADO    ; liviana → posiciona rápido
     rjmp volv
+
+ST_CINTA1_M:
+    cpi  EVENTO, B2
+    BRNE_RJMP volv
+    ldi  ESTADO, S_POSICIONADO    ; media (podés requerir B+1 si querés más tiempo de cinta)
+    rjmp volv
+
+ST_CINTA1_P:
+    ; ejemplo: pesada necesita más “tiempo de cinta”
+    cpi  EVENTO, B3
+/*    BRNE_RJMP cinta1p_keep
+    ; si quisieras exigir 1 tick extra: cambiá arriba a cpi EVENTO, B+1 (o usa otro umbral)
+cinta1p_keep:
+    cpi  EVENTO, B*/
+    BRNE_RJMP volv
+    ldi  ESTADO, S_POSICIONADO
+    rjmp volv
+
+ST_CINTA1_DEF:
+    cpi  EVENTO, B
+    BRNE_RJMP volv
+    ldi  ESTADO, S_POSICIONADO
+    rjmp volv
+
 
 ; -------------------- ESTADO: POSICIONADO (2) ----------------
 ST_POSICIONADO1:
-	cpi EVENTO, C
-	brne volv 
-	ldi ESTADO, S_PUNZONADO
-
+    cpi  TIPO_Carga, CARGA_LIVIANA
+    BREQ_RJMP ST_POS1_L
+    cpi  TIPO_Carga, CARGA_MEDIA
+    BREQ_RJMP ST_POS1_M
+    cpi  TIPO_Carga, CARGA_PESADA
+    BREQ_RJMP ST_POS1_P
 	rjmp volv
+    
+ST_POS1_L:
+    cpi  EVENTO, C
+    BRNE_RJMP volv
+    ldi  ESTADO, S_PUNZONADO      ; liviana: punzona antes
+    rjmp volv
+
+ST_POS1_M:
+    cpi  EVENTO, C2
+    BRNE_RJMP volv
+    ldi  ESTADO, S_PUNZONADO
+    rjmp volv
+
+ST_POS1_P:
+    ; pesada: podrías exigir un tick más de posicionamiento
+    cpi  EVENTO, C3
+    BRNE_RJMP volv
+    ldi  ESTADO, S_PUNZONADO
+    rjmp volv
+
+
+
 ; -------------------- ESTADO: PUNZONADO (3) ----------------
 ST_PUNZONADORA1:
-    cpi  EVENTO, D        ; 4
-    brne volv
-    ldi  ESTADO, S_CINTA_INVERSA
-    
+    cpi  TIPO_Carga, CARGA_LIVIANA
+    BREQ_RJMP ST_PUNZ1_L
+    cpi  TIPO_Carga, CARGA_MEDIA
+    BREQ_RJMP ST_PUNZ1_M
+    cpi  TIPO_Carga, CARGA_PESADA
+    BREQ_RJMP ST_PUNZ1_P
     rjmp volv
+
+ST_PUNZ1_L:
+    cpi  EVENTO, D
+    BRNE_RJMP volv
+    ldi  ESTADO, S_CINTA_INVERSA
+    rjmp volv
+
+ST_PUNZ1_M:
+    cpi  EVENTO, D2
+    BRNE_RJMP volv
+    ldi  ESTADO, S_CINTA_INVERSA
+    rjmp volv
+
+ST_PUNZ1_P:
+    ; pesada: punzonado podría durar más (usa otro umbral si querés)
+    cpi  EVENTO, D3
+    BRNE_RJMP volv
+    ldi  ESTADO, S_CINTA_INVERSA
+    rjmp volv
+
+
 
 ; -------------------- ESTADO: CINTA_INVERSA (4) ------------
 ST_CINTA_INVERSA1:
-    cpi  EVENTO, E        ; 5
-    brne volv
-    ldi  ESTADO, S_ESPERA2      ; o S_ESPERA si querés cerrar el ciclo aquí
-    
+    cpi  TIPO_Carga, CARGA_LIVIANA
+    BREQ_RJMP ST_CINVI1_L
+    cpi  TIPO_Carga, CARGA_MEDIA
+    BREQ_RJMP ST_CINVI1_M
+    cpi  TIPO_Carga, CARGA_PESADA
+    BREQ_RJMP ST_CINVI1_P
     rjmp volv
+
+ST_CINVI1_L:
+    cpi  EVENTO, E
+    BRNE_RJMP volv
+    ldi  ESTADO, S_ESPERA2
+    rjmp volv
+
+ST_CINVI1_M:
+    cpi  EVENTO, E2
+    BRNE_RJMP volv
+    ldi  ESTADO, S_ESPERA2
+    rjmp volv
+
+ST_CINVI1_P:
+    ; pesada: quizá precisa retroceder más tiempo
+    cpi  EVENTO, E3
+    BRNE_RJMP volv
+    ldi  ESTADO, S_ESPERA2
+    rjmp volv
+
+
 
 ; -------------------- ESTADO: ESPERA2 (5) ------------------
 ST_ESPERA2_1:
-    ; Si querés que el "último" salte al inicio:
-    cpi  EVENTO, A        ; reusamos A para cerrar el ciclo
-    brne volv
-    ldi  ESTADO, S_ESPERA
-    
+    cpi  TIPO_Carga, CARGA_LIVIANA
+    BREQ_RJMP ST_ESPERA2_1_L
+    cpi  TIPO_Carga, CARGA_MEDIA
+    BREQ_RJMP ST_ESPERA2_1_M
+    cpi  TIPO_Carga, CARGA_PESADA
+    BREQ_RJMP ST_ESPERA2_1_P
     rjmp volv
-	 
-esperar_nuevo:
-	ldi ESTADO, S_ESPERA2
-	rjmp volv
+
+ST_ESPERA2_1_L:
+    cpi  EVENTO, A
+    BRNE_RJMP volv
+    ldi  ESTADO, S_ESPERA
+    rjmp volv
+
+ST_ESPERA2_1_M:
+    cpi  EVENTO, A2
+    BRNE_RJMP volv
+    ldi  ESTADO, S_ESPERA
+    rjmp volv
+
+ST_ESPERA2_1_P:
+    cpi  EVENTO, A3
+    BRNE_RJMP volv
+    ldi  ESTADO, S_ESPERA
+    rjmp volv
+
 
 volv:
 	pop r17
@@ -268,36 +446,6 @@ volv:
     reti
 
 
-retardo:
-    ; Guardar TIMSK1 y deshabilitar overflow de T1
-    push r17
-    lds  r17, TIMSK1
-    push r17
-    andi r17, ~(1<<TOIE1)
-    sts  TIMSK1, r17
-
-    ; --- Demora por overflow ---
-    ldi  r16, (1<<TOV1)       ; limpia bandera previa
-    sts  TIFR1, r16
-
-    ; precarga para ~1.000 s con /1024 (F_CPU=16MHz)
-    ldi  r16, high(0xC2F7)
-    sts  TCNT1H, r16
-    ldi  r16, low(0xC2F7)
-    sts  TCNT1L, r16
-
-espera_t1:
-    lds  r16, TIFR1
-    sbrs r16, TOV1            ; ¿overflow?
-    rjmp espera_t1
-    ldi  r16, (1<<TOV1)       ; limpiar TOV1
-    sts  TIFR1, r16
-
-    ; Restaurar TIMSK1
-    pop  r17
-    sts  TIMSK1, r17
-    pop  r17
-    ret
 
 ; === ISR de recepción USART: recibe '0'..'4' y los mapea a estados 0..4 ===
 USART_RX_ISR:
@@ -310,14 +458,99 @@ USART_RX_ISR:
     ; Si llega ASCII '0'..'4', convertir a 0..4 y cargar ESTADO
     cpi  r16, '0'
     brlo usart_end              ; < '0' ? ignorar
-    cpi  r16, '5'+1
-    brsh usart_end              ; > '5' ? ignorar
+    cpi  r16, '3'+1
+    brsh usart_end              ; > '3' ? ignorar
     subi r16, '0'               
-    mov  ESTADO, r16
-    clr  EVENTO                 ; opcional: reiniciar evento al cambiar estado por comando
+    mov  TIPO_Carga, r16
+    clr  EVENTO                 ; opcional: reiniciar evento al cambiar carga por comando
 
 usart_end:
     pop  r16
     out  SREG, r16
     pop  r16
     reti
+
+delay:
+	push r16
+	in r16, sreg
+	push r16
+
+    ldi  r16, high(0xC2F7)
+    sts  TCNT1H, r16
+    ldi  r16, low(0xC2F7)
+    sts  TCNT1L, r16
+
+	pop r16
+	out sreg, r16
+	pop r16
+    ret
+
+USART_WRITE_BYTE:
+    push r17
+    push r18
+    push r19
+    push ZH
+    push ZL
+
+    ; head/tail
+    lds  r17, tx_head
+    lds  r18, tx_tail
+
+    ; next = (head + 1) & MASK   (keep it in r19!)
+    mov  r19, r17
+    inc  r19
+    andi r19, TX_BUF_MASK
+
+wait_space:
+    ; full? next == tail
+    cp   r19, r18
+    brne have_space
+    ; maybe ISR advanced tail while we were here ? reload tail and re-check
+    lds  r18, tx_tail
+    cp   r19, r18
+    breq wait_space
+
+have_space:
+    ; Z = &tx_buffer[head]
+    ldi  ZL, low(tx_buffer)
+    ldi  ZH, high(tx_buffer)
+    add  ZL, r17
+    adc  ZH, r1            ; r1 must be 0
+
+    st   Z, r16            ; write byte
+
+    ; head = next   (use r19, NOT ZL)
+    sts  tx_head, r19
+
+    ; enable UDRE interrupt so ISR starts/continues draining
+    cli
+    lds  r18, UCSR0B
+    ori  r18, (1<<UDRIE0)
+    sts  UCSR0B, r18
+    sei
+
+    pop  ZL
+    pop  ZH
+    pop  r19
+    pop  r18
+    pop  r17
+    ret
+
+; Preload Z with the message
+SEND_MESSAGE:
+	push r16
+
+	SEND_MESSAGE_LOOP:
+	lpm r16, Z+
+	cpi r16, 0
+
+	breq SEND_MESSAGE_END
+	rcall USART_WRITE_BYTE
+	rjmp SEND_MESSAGE_LOOP
+
+	SEND_MESSAGE_END:
+	pop r16
+	ret
+
+
+
