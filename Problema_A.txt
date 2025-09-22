@@ -151,7 +151,8 @@ INICIO:
 	
 	ldi ESTADO, S_ESPERA
 	ldi TIPO_Carga, CARGA_PESADA 
-	
+	sbi PORTC, PC4
+
 	ldi  ZL, low(MSG_MENU<<1)
     ldi  ZH, high(MSG_MENU<<1)
 
@@ -247,6 +248,8 @@ have_space:
     ret
 
 ST_ESPERA:
+	sbi PORTC, PC0
+	cbi PORTC, PC1
     ldi  r16, APAGAR_PUNZONADORA
     out  PORTD, r16
     ;ldi  ESTADO, S_ESPERA
@@ -254,6 +257,8 @@ ST_ESPERA:
 
 
 ST_CINTA:
+	sbi PORTC, PC1
+	cbi PORTC, PC0
     ldi  r16, MOVER_CINTA
     out  PORTD, r16
     rjmp main
@@ -274,8 +279,8 @@ ST_POSICIONADO:
     rjmp main
 
 ST_ESPERAA2:
+	cbi PORTC, PC1
 	sbi PORTC, PC0
-	cbi PORTC, PC2
     ldi  r16, APAGAR_PUNZONADORA
     out  PORTD, r16
     rjmp main
@@ -472,8 +477,6 @@ ST_CINVI1_P:
 
 ; -------------------- ESTADO: ESPERA2 (5) ------------------
 ST_ESPERA2_1:
-	cbi PORTC, PC1
-	sbi PORTC, PC2
     cpi  TIPO_Carga, CARGA_LIVIANA
     BREQ_RJMP ST_ESPERA2_1_L
     cpi  TIPO_Carga, CARGA_MEDIA
@@ -530,16 +533,25 @@ USART_RX_ISR:
     rjmp usart_end                  ; default: ignorar cualquier otra tecla
 
 rx_set_liviana:
+	sbi PORTC, PC2
+	cbi PORTC, PC3
+	cbi PORTC, PC4
     ldi  TIPO_Carga, CARGA_LIVIANA  ; TIPO_Carga = 1
     clr  EVENTO
     rjmp usart_end
 
 rx_set_media:
+	sbi PORTC, PC3
+	cbi PORTC, PC2
+	cbi PORTC, PC4
     ldi  TIPO_Carga, CARGA_MEDIA    ; TIPO_Carga = 2
     clr  EVENTO
     rjmp usart_end
 
 rx_set_pesada:
+	sbi PORTC, PC4
+	cbi PORTC, PC3
+	cbi PORTC, PC2
     ldi  TIPO_Carga, CARGA_PESADA   ; TIPO_Carga = 3
     clr  EVENTO
 	rjmp usart_end
@@ -642,40 +654,4 @@ usart_udre_exit:
     reti
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-.cseg 
-.org 0x400 
-	MSG_ERROR: 
-		.db "Error: comando no encontrado ", 0x0A, 0x0A, 0
-	
-	MSG_MENU:
-		.db "Estado actual: Standby", 0x0A, 0x0A
-		.db "Elija una opcion:", 0x0A
-		.db "[1] -> Carga ligera            ", 0x0A
-		.db "[2] -> Carga mediana           ", 0x0A
-		.db "[3] -> Carga pesada            ", 0x0A
-		.db "[A] -> Iniciar proceso ", 0x0A, 0x0A, 0
-			
-	MSG_STATE_1: .db "Estado actual: Alimentación", 0x0A, 0x0A, 0  
-	MSG_STATE_2: .db "Estado actual: Espera", 0x0A, 0x0A, 0
-	MSG_STATE_3: .db "Estado actual: Punzonado ", 0x0A, 0x0A, 0
-	MSG_STATE_4: .db "Estado actual: Espera 2", 0x0A, 0x0A, 0
-	MSG_STATE_5: .db "Estado actual: Extracción", 0x0A, 0x0A, 0
-
-	MSG_LOAD_0:	 .db "Carga configurada: Ligera ", 0x0A, 0
-	MSG_LOAD_1:	 .db "Carga configurada: Mediana", 0x0A, 0
-	MSG_LOAD_2:	 .db "Carga configurada: Pesada ", 0x0A, 0
 
