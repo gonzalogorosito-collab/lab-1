@@ -30,9 +30,9 @@
 	.equ _BPS = (_F_CPU/16/_BAUD) - 1
 	
 	; Tipos de carga
-	.equ CARGA_LIVIANA = 6
-	.equ CARGA_MEDIA = 7
-	.equ CARGA_PESADA = 8
+	.equ CARGA_LIVIANA = 1
+	.equ CARGA_MEDIA = 2
+	.equ CARGA_PESADA = 3
 
 	; Estados
 	.equ S_ESPERA        = 0  ; 1. En espera – Sistema listo, esperando inicio
@@ -48,6 +48,7 @@
 	.equ APAGAR_PUNZONADORA = (0<<PD6) | (0<<PD5) | (0<<PD3)
 	.equ MOVER_CINTA_INVERSA = (0<<PD6) | (1<<PD5) | (0<<PD3)
 
+	
 	; Registros a utilizar
 	.def TIPO_Carga= r19
 	.def ESTADO= r20
@@ -75,21 +76,26 @@
 	.equ D3 = 14
 	.equ E3 = 17
 
+	; Espacio para las vairables guardadas en la RAM
+	.dseg ; data segment
+		tx_buffer: .byte TX_BUF_SIZE          ; circular buffer storage
+		tx_head:   .byte 1                    ; enqueue index
+		tx_tail:   .byte 1                    ; dequeue index
+		Comenzar: .byte 1
 
+
+	.cseg
+	.org 0x0000
+		rjmp INICIO 
 ; Inicializacion de interrupciones
 	.org 0x001A
 		rjmp CAMBIAR_ESTADO
-
 	.org 0x0024 
 		rjmp USART_RX_ISR	; Recieved USART data
+	.org 0x0026 
+		rjmp USART_UDRE_ISR ; USART Data register clear
 
-
-
-	.org 0x200
-		rjmp INICIO
-
-
-
+.org 0x100
 INICIO:
 `	ldi r16, high(RAMEND) ; Inicializamos en STACK
 	out SPH, r16
@@ -123,26 +129,33 @@ INICIO:
 	sts UCSR0C,r16
 
 
-	sei
+	
 
 	; --- PORTD setup ---
 	; Salidas: PD6, PD5, PD4 (READY), PD3
 	; Entrada: PD2 (START) con pull-up
-	ldi  r16, (1<<PD6)|(1<<PD5)|(1<<PD4)|(1<<PD3)
+	ldi  r16, (1<<PD6)|(1<<PD5)|(1<<PD3)
 	out  DDRD, r16
 
-	; Pull-up en START
-	sbi  PORTD, PD2
-
-	; READY = 1 (listo al inicio)
-	sbi  PORTD, PD4
+	ldi r16, 0xff
+	out DDRC, r16
+	
+	ldi  r16, 0
+	sts  tx_head, r16
+	sts  tx_tail, r16
+	clr  r1 
+	sts Comenzar, r16
 
 	ldi EVENTO, 0
 	
 	ldi ESTADO, S_ESPERA
 	ldi TIPO_Carga, CARGA_PESADA 
 	
+	ldi  ZL, low(MSG_MENU<<1)
+    ldi  ZH, high(MSG_MENU<<1)
 
+    rcall SEND_MESSAGE
+	sei
     rjmp main
 
 
@@ -154,6 +167,7 @@ INICIO:
 
 main:     
 	;Switch para saber que hacer
+	
 
 	cpi  ESTADO, S_ESPERA
     BREQ_RJMP ST_ESPERA
@@ -178,22 +192,64 @@ main:
 ; En el main se evalúa el evento, y según que evento este activa las salidas
 
 
+
+
+USART_WRITE_BYTE:
+    push r17
+    push r18
+    push r19
+    push ZH
+    push ZL
+
+    ; head/tail
+    lds  r17, tx_head
+    lds  r18, tx_tail
+
+    ; next = (head + 1) & MASK   (keep it in r19!)
+    mov  r19, r17
+    inc  r19
+    andi r19, TX_BUF_MASK
+
+wait_space:
+    ; full? next == tail
+    cp   r19, r18
+    brne have_space
+    ; maybe ISR advanced tail while we were here ? reload tail and re-check
+    lds  r18, tx_tail
+    cp   r19, r18
+    breq wait_space
+
+have_space:
+    ; Z = &tx_buffer[head]
+    ldi  ZL, low(tx_buffer)
+    ldi  ZH, high(tx_buffer)
+    add  ZL, r17
+    adc  ZH, r1            ; r1 must be 0
+
+    st   Z, r16            ; write byte
+
+    ; head = next   (use r19, NOT ZL)
+    sts  tx_head, r19
+
+    ; enable UDRE interrupt so ISR starts/continues draining
+    cli
+    lds  r18, UCSR0B
+    ori  r18, (1<<UDRIE0)
+    sts  UCSR0B, r18
+    sei
+
+    pop  ZL
+    pop  ZH
+    pop  r19
+    pop  r18
+    pop  r17
+    ret
+
 ST_ESPERA:
     ; Mantener salidas apagadas
     ldi  r16, APAGAR_PUNZONADORA
     out  PORTD, r16
-
-    ; READY = 1 mientras esperamos
-    sbi  PORTD, PD4
-
-    ; ¿START presionado? (PD2 con pull-up: 0 = presionado)
-    sbic PIND, PD2          ; salta si PD2==0 (presionado)
-    rjmp no_start
-
-    ; Inicio: bajamos READY y arrancamos ciclo
-    cbi  PORTD, PD4         ; READY = 0
-    clr  EVENTO
-    ldi  ESTADO, S_CINTA
+    ldi  ESTADO, S_ESPERA
     rjmp main
 
 no_start:
@@ -202,31 +258,26 @@ no_start:
 ST_CINTA:
     ldi  r16, MOVER_CINTA
     out  PORTD, r16
-    cbi  PORTD, PD4         ; READY = 0 (en proceso)
     rjmp main
 
 ST_PUNZONADORA:
     ldi  r16, MOVER_PUNZONADORA
     out  PORTD, r16
-    cbi  PORTD, PD4
     rjmp main
 
 ST_CINTA_INVERSA:
     ldi  r16, MOVER_CINTA_INVERSA
     out  PORTD, r16
-    cbi  PORTD, PD4
     rjmp main
 
 ST_POSICIONADO:
     ldi  r16, APAGAR_PUNZONADORA
     out  PORTD, r16
-    cbi  PORTD, PD4
     rjmp main
 
 ST_ESPERAA2:
     ldi  r16, APAGAR_PUNZONADORA
     out  PORTD, r16
-    cbi  PORTD, PD4
     rjmp main
 
 
@@ -436,7 +487,6 @@ ST_ESPERA2_1_L:
     cpi  EVENTO, A
     BRNE_RJMP volv
     ldi  ESTADO, S_ESPERA
-    sbi  PORTD, PD4         ; READY = 1 (ciclo terminado)
     rjmp  volv
 
 ; Igual en _M y _P:
@@ -444,14 +494,12 @@ ST_ESPERA2_1_M:
     cpi  EVENTO, A2
     BRNE_RJMP volv
     ldi  ESTADO, S_ESPERA
-    sbi  PORTD, PD4
     rjmp  volv
 
 ST_ESPERA2_1_P:
     cpi  EVENTO, A3
     BRNE_RJMP volv
     ldi  ESTADO, S_ESPERA
-    sbi  PORTD, PD4
     rjmp  volv
 
 volv:
@@ -462,23 +510,43 @@ volv:
 
 
 
-; === ISR de recepción USART: recibe '0'..'4' y los mapea a estados 0..4 ===
+; === ISR de recepción USART: '1','2','3' -> TIPO_Carga ===
 USART_RX_ISR:
     push r16
     in   r16, SREG
     push r16
 
-    lds  r16, UDR0              ; leer dato recibido limpia RXC
+    lds  r16, UDR0                  ; leer dato recibido limpia RXC
 
-    ; Si llega ASCII '0'..'4', convertir a 0..4 y cargar ESTADO
-    cpi  r16, '0'
-    brlo usart_end              ; < '0' ? ignorar
-    cpi  r16, '3'+1
-    brsh usart_end              ; > '3' ? ignorar
-    subi r16, '0'               
-    mov  TIPO_Carga, r16
-    clr  EVENTO                 ; opcional: reiniciar evento al cambiar carga por comando
+    ; switch (r16)
+    cpi  r16, '1'
+    breq rx_set_liviana
+    cpi  r16, '2'
+    breq rx_set_media
+    cpi  r16, '3'
+    breq rx_set_pesada
+	cpi r16, 'A'
+	breq Iniciar_Estado
 
+    rjmp usart_end                  ; default: ignorar cualquier otra tecla
+
+rx_set_liviana:
+    ldi  TIPO_Carga, CARGA_LIVIANA  ; TIPO_Carga = 1
+    clr  EVENTO
+    rjmp usart_end
+
+rx_set_media:
+    ldi  TIPO_Carga, CARGA_MEDIA    ; TIPO_Carga = 2
+    clr  EVENTO
+    rjmp usart_end
+
+rx_set_pesada:
+    ldi  TIPO_Carga, CARGA_PESADA   ; TIPO_Carga = 3
+    clr  EVENTO
+    ; fall-through al final
+Iniciar_Estado:
+	ldi ESTADO, S_CINTA
+	clr EVENTO
 usart_end:
     pop  r16
     out  SREG, r16
@@ -499,57 +567,7 @@ delay:
 	out sreg, r16
 	pop r16
     ret
-/*
-USART_WRITE_BYTE:
-    push r17
-    push r18
-    push r19
-    push ZH
-    push ZL
 
-    ; head/tail
-    lds  r17, tx_head
-    lds  r18, tx_tail
-
-    ; next = (head + 1) & MASK   (keep it in r19!)
-    mov  r19, r17
-    inc  r19
-    andi r19, TX_BUF_MASK
-
-wait_space:
-    ; full? next == tail
-    cp   r19, r18
-    brne have_space
-    ; maybe ISR advanced tail while we were here ? reload tail and re-check
-    lds  r18, tx_tail
-    cp   r19, r18
-    breq wait_space
-
-have_space:
-    ; Z = &tx_buffer[head]
-    ldi  ZL, low(tx_buffer)
-    ldi  ZH, high(tx_buffer)
-    add  ZL, r17
-    adc  ZH, r1            ; r1 must be 0
-
-    st   Z, r16            ; write byte
-
-    ; head = next   (use r19, NOT ZL)
-    sts  tx_head, r19
-
-    ; enable UDRE interrupt so ISR starts/continues draining
-    cli
-    lds  r18, UCSR0B
-    ori  r18, (1<<UDRIE0)
-    sts  UCSR0B, r18
-    sei
-
-    pop  ZL
-    pop  ZH
-    pop  r19
-    pop  r18
-    pop  r17
-    ret
 
 ; Preload Z with the message
 SEND_MESSAGE:
@@ -565,9 +583,99 @@ SEND_MESSAGE:
 
 	SEND_MESSAGE_END:
 	pop r16
-	ret*/
+	ret
 
 
+USART_UDRE_ISR:
+    push r16
+    in   r16, SREG
+    push r16
+
+    push r17
+    push r18
+    push r20
+    push ZH
+    push ZL
+
+    ; r17 = head, r18 = tail
+    lds  r17, tx_head
+    lds  r18, tx_tail
+
+    ; buffer vacío? head == tail
+    cp   r17, r18
+    brne usart_udre_send
+
+    ; vacío: deshabilitar UDRIE0
+    lds  r20, UCSR0B
+    andi r20, ~(1<<UDRIE0)
+    sts  UCSR0B, r20
+    rjmp usart_udre_exit
+
+usart_udre_send:
+    ; Z = &tx_buffer[tail]
+    ldi  ZL, low(tx_buffer)
+    ldi  ZH, high(tx_buffer)
+    add  ZL, r18
+    adc  ZH, r1          ; requiere r1 = 0
+
+    ; enviar byte
+    ld   r16, Z
+    sts  UDR0, r16
+
+    ; tail = (tail + 1) & TX_BUF_MASK
+    inc  r18
+    andi r18, TX_BUF_MASK   ; con 256 es 0xFF: no cambia, pero deja claro el patrón
+    sts  tx_tail, r18
+
+usart_udre_exit:
+    pop  ZL
+    pop  ZH
+    pop  r20
+    pop  r18
+    pop  r17
+
+    pop  r16
+    out  SREG, r16
+    pop  r16
+    reti
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+.cseg 
+.org 0x400 
+	MSG_ERROR: 
+		.db "Error: comando no encontrado ", 0x0A, 0x0A, 0
+	
+	MSG_MENU:
+		.db "Estado actual: Standby", 0x0A, 0x0A
+		.db "Elija una opcion:", 0x0A
+		.db "[1] -> Carga ligera            ", 0x0A
+		.db "[2] -> Carga mediana           ", 0x0A
+		.db "[3] -> Carga pesada            ", 0x0A
+		.db "[A] -> Iniciar proceso ", 0x0A, 0x0A, 0
+			
+	MSG_STATE_1: .db "Estado actual: Alimentación", 0x0A, 0x0A, 0  
+	MSG_STATE_2: .db "Estado actual: Espera", 0x0A, 0x0A, 0
+	MSG_STATE_3: .db "Estado actual: Punzonado ", 0x0A, 0x0A, 0
+	MSG_STATE_4: .db "Estado actual: Espera 2", 0x0A, 0x0A, 0
+	MSG_STATE_5: .db "Estado actual: Extracción", 0x0A, 0x0A, 0
+
+	MSG_LOAD_0:	 .db "Carga configurada: Ligera ", 0x0A, 0
+	MSG_LOAD_1:	 .db "Carga configurada: Mediana", 0x0A, 0
+	MSG_LOAD_2:	 .db "Carga configurada: Pesada ", 0x0A, 0
 
 
 
