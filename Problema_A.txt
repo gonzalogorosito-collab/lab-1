@@ -139,7 +139,8 @@ INICIO:
 
 	ldi r16, 0xff
 	out DDRC, r16
-	
+	sbi PORTC, PC0
+
 	ldi  r16, 0
 	sts  tx_head, r16
 	sts  tx_tail, r16
@@ -246,14 +247,11 @@ have_space:
     ret
 
 ST_ESPERA:
-    ; Mantener salidas apagadas
     ldi  r16, APAGAR_PUNZONADORA
     out  PORTD, r16
-    ldi  ESTADO, S_ESPERA
+    ;ldi  ESTADO, S_ESPERA
     rjmp main
 
-no_start:
-    rjmp main
 
 ST_CINTA:
     ldi  r16, MOVER_CINTA
@@ -276,6 +274,8 @@ ST_POSICIONADO:
     rjmp main
 
 ST_ESPERAA2:
+	sbi PORTC, PC0
+	cbi PORTC, PC2
     ldi  r16, APAGAR_PUNZONADORA
     out  PORTD, r16
     rjmp main
@@ -311,6 +311,7 @@ CAMBIAR_ESTADO:
 ; -------------------- ESTADO: ESPERA (0) --------------------
 ST_ESPERA1:
     ; switch (TIPO_Carga)
+	
     cpi  TIPO_Carga, CARGA_LIVIANA
     BREQ_RJMP ST_ESPERA1_L
     cpi  TIPO_Carga, CARGA_MEDIA
@@ -322,30 +323,26 @@ ST_ESPERA1:
 ST_ESPERA1_L:             ; liviana
     cpi  EVENTO, A
     BRNE_RJMP volv
-    ldi  ESTADO, S_CINTA          ; <-- cambialo si querés
+    ldi  ESTADO, S_ESPERA          ; <-- cambialo si querés
     rjmp volv
 
 ST_ESPERA1_M:             ; media
     cpi  EVENTO, A2
     BRNE_RJMP volv
-    ldi  ESTADO, S_CINTA          ; (ej.: podrías pedir 2 ticks: cpi EVENTO, A+1)
+    ldi  ESTADO, S_ESPERA         ; (ej.: podrías pedir 2 ticks: cpi EVENTO, A+1)
     rjmp volv
 
 ST_ESPERA1_P:             ; pesada
     cpi  EVENTO, A3
     BRNE_RJMP volv
-    ldi  ESTADO, S_CINTA
-    rjmp volv
-
-ST_ESPERA1_DEF:           ; default
-    cpi  EVENTO, A
-    BRNE_RJMP volv
-    ldi  ESTADO, S_CINTA
+    ldi  ESTADO, S_ESPERA
     rjmp volv
 
 
 ; -------------------- ESTADO: CINTA (1) --------------------
 ST_CINTA1:
+	sbi PORTC, PC1
+	cbi PORTC, PC0
     cpi  TIPO_Carga, CARGA_LIVIANA
     BREQ_RJMP ST_CINTA1_L
     cpi  TIPO_Carga, CARGA_MEDIA
@@ -475,6 +472,8 @@ ST_CINVI1_P:
 
 ; -------------------- ESTADO: ESPERA2 (5) ------------------
 ST_ESPERA2_1:
+	cbi PORTC, PC1
+	sbi PORTC, PC2
     cpi  TIPO_Carga, CARGA_LIVIANA
     BREQ_RJMP ST_ESPERA2_1_L
     cpi  TIPO_Carga, CARGA_MEDIA
@@ -543,10 +542,13 @@ rx_set_media:
 rx_set_pesada:
     ldi  TIPO_Carga, CARGA_PESADA   ; TIPO_Carga = 3
     clr  EVENTO
+	rjmp usart_end
     ; fall-through al final
 Iniciar_Estado:
 	ldi ESTADO, S_CINTA
 	clr EVENTO
+	rjmp usart_end
+
 usart_end:
     pop  r16
     out  SREG, r16
