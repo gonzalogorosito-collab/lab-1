@@ -1,6 +1,10 @@
 
 .include "m328pdef.inc"
 
+
+	.def S_I = r17 ; Setear Individual por fila
+
+
 .cseg
     .org 0x0000
     rjmp INICIO
@@ -8,8 +12,8 @@
     .org 0x0012
     rjmp overflow
 
-	.org 0x001A
-    rjmp overflow2
+/*	.org 0x001A
+    rjmp overflow2*/
    
 
     .org 0x0200
@@ -64,8 +68,9 @@ INICIO:
     ldi  r30, low(WELCOME_HOME_COLS)
     ldi  r31, high(WELCOME_HOME_COLS)
    
+	LDI  S_I, 0x01
 
-    JMP PRINCIPAL
+    RJMP PRINCIPAL
 
 PRINCIPAL:
 
@@ -88,14 +93,12 @@ overflow:
 		ldi  r30, low(WELCOME_HOME_COLS)
 		ldi  r31, high(WELCOME_HOME_COLS)
 		LDI r24, 0
-	
-
      
 skip_reset_ptr:
     COM r18
 
     MOV  r23, r18
-    ANDI r23, 0b00111111
+    ANDI r23, 0b00001111
     OUT  PORTB, r23
 
     MOV  r23, r18
@@ -103,22 +106,20 @@ skip_reset_ptr:
     LSR  r23
     LSR  r23
     LSR  r23
-    LSR  r23
-    LSR  r23
-    ANDI r23, 0b00000011
+    ANDI r23, 0b00001111
     OUT  PORTC, r23
 
-    OUT  PORTD, r17
+    OUT  PORTD, S_I
 
-    LSL  r17
+    LSL  S_I
     BRNE end_ovf
-      LDI  r17, 0x01
+      LDI  S_I, 0x01
 end_ovf:
     RETI
 
 	;Como se precisan 8 bits, hay que hacer una mascara para utilizar 4 pines de D y 4 de B, 2 de B y los 6 de C
 
-mascara_Para_Pines:
+/*mascara_Para_Pines:
 	
 
 overflow2:
@@ -129,7 +130,7 @@ overflow2:
 	
 	adiw r25, 0x01
 	
-	reti
+	reti*/
 	
 
     .org 400 
@@ -146,3 +147,4 @@ overflow2:
 		.db	0x3E,0x41,0x41,0x41,0x3E,0x00          ; O + espacio
 		.db	0x7F,0x02,0x0C,0x02,0x7F,0x00          ; M + espacio
 		.db	0x7F,0x45,0x45,0x45,0x41                ; E (final)
+
