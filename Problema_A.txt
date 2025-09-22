@@ -547,7 +547,7 @@ rx_set_pesada:
 Iniciar_Estado:
 	ldi ESTADO, S_CINTA
 	clr EVENTO
-	rjmp usart_end
+
 
 usart_end:
     pop  r16
@@ -678,7 +678,4 @@ usart_udre_exit:
 	MSG_LOAD_0:	 .db "Carga configurada: Ligera ", 0x0A, 0
 	MSG_LOAD_1:	 .db "Carga configurada: Mediana", 0x0A, 0
 	MSG_LOAD_2:	 .db "Carga configurada: Pesada ", 0x0A, 0
-
-
-
 
