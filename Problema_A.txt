@@ -53,6 +53,7 @@
 	.def TIPO_Carga= r19
 	.def ESTADO= r20
 	.def EVENTO= r21
+	.def CONTADOR= r22
 
 ; Constantes para evaluar el cambio de estado
 	;Liviano
@@ -94,6 +95,9 @@
 		rjmp USART_RX_ISR	; Recieved USART data
 	.org 0x0026 
 		rjmp USART_UDRE_ISR ; USART Data register clear
+	.org  0x000A
+		rjmp Interrupcion_PCINT;PC 5
+
 
 .org 0x100
 INICIO:
@@ -155,6 +159,24 @@ INICIO:
 
 	ldi  ZL, low(MSG_MENU<<1)
     ldi  ZH, high(MSG_MENU<<1)
+
+
+
+    ; PD2..PD7 = PCINT18..23 -> bits2..7 de PCMSK2
+    ldi  r16, (1<<2) | (1<<7)
+    sts  PCMSK2, r16
+
+	sbi PORTD, PD2
+	sbi PORTD, PD7
+	
+
+    ; Habilitar grupos PCINT1 (PORTC) y PCINT2 (PORTD)
+    ldi  r16, (1<<PCIE2)
+    sts  PCICR, r16
+
+    ; Limpiar flags pendientes
+    ldi  r16,  (1<<PCIF2)
+    sts  PCIFR, r16
 
     rcall SEND_MESSAGE
 	sei
@@ -654,4 +676,95 @@ usart_udre_exit:
     reti
 
 
+
+; ----------------------------------------------------------
+; PCINT (grupo 2: PORTD). Flanco descendente con pull-ups.
+; - PD7 presionado:  ESTADO = S_CINTA ; EVENTO = 0
+; - PD2 presionado:  TIPO_Carga = 1->2->3->1 y LEDs en PC2/PC3/PC4
+; ----------------------------------------------------------
+Interrupcion_PCINT:
+    push r16
+    in   r16, SREG
+    push r16
+
+    in   r16, PIND           ; leer pines (no PORTD)
+
+    ; ¿PD7=0? -> iniciar
+    sbrs r16, PD7            ; salta si PD7==1; si está en 0 cae a _pd7
+    rjmp _pd7
+
+    ; ¿PD2=0? -> ciclar carga
+    sbrs r16, PD2
+    rjmp _pd2
+
+    rjmp _done               ; ninguno en 0 -> nada
+
+_pd7:
+    ldi  ESTADO, S_CINTA
+    clr  EVENTO
+    rjmp _done
+
+_pd2:
+    ; 1 -> 2 -> 3 -> 1
+    inc  TIPO_Carga
+    cpi  TIPO_Carga, 4
+    brlo _set_leds
+    ldi  TIPO_Carga, 1
+
+_set_leds:
+    ; PC2,PC3,PC4 como indicador
+    cpi  TIPO_Carga, 1
+    breq _liv
+    cpi  TIPO_Carga, 2
+    breq _med
+    ; else 3:
+    sbi  PORTC, PC4
+    cbi  PORTC, PC2
+    cbi  PORTC, PC3
+    rjmp _done
+_liv:
+    sbi  PORTC, PC2
+    cbi  PORTC, PC3
+    cbi  PORTC, PC4
+    rjmp _done
+_med:
+    sbi  PORTC, PC3
+    cbi  PORTC, PC2
+    cbi  PORTC, PC4
+
+_done:
+    pop  r16
+    out  SREG, r16
+    pop  r16
+    reti
+
+
+
+
+
+
+
+
+.cseg 
+.org 0x400 
+	MSG_ERROR: 
+		.db "Error: comando no encontrado ", 0x0A, 0x0A, 0
+	
+	MSG_MENU:
+		.db "Estado actual: Standby", 0x0A, 0x0A
+		.db "Elija una opcion:", 0x0A
+		.db "[1] -> Carga ligera            ", 0x0A
+		.db "[2] -> Carga mediana           ", 0x0A
+		.db "[3] -> Carga pesada            ", 0x0A
+		.db "[A] -> Iniciar proceso ", 0x0A, 0x0A, 0
+			
+	MSG_STATE_1: .db "Estado actual: Alimentación", 0x0A, 0x0A, 0  
+	MSG_STATE_2: .db "Estado actual: Espera", 0x0A, 0x0A, 0
+	MSG_STATE_3: .db "Estado actual: Punzonado ", 0x0A, 0x0A, 0
+	MSG_STATE_4: .db "Estado actual: Espera 2", 0x0A, 0x0A, 0
+	MSG_STATE_5: .db "Estado actual: Extracción", 0x0A, 0x0A, 0
+
+	MSG_LOAD_0:	 .db "Carga configurada: Ligera ", 0x0A, 0
+	MSG_LOAD_1:	 .db "Carga configurada: Mediana", 0x0A, 0
+	MSG_LOAD_2:	 .db "Carga configurada: Pesada ", 0x0A, 0
 
