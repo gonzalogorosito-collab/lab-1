@@ -1,5 +1,6 @@
 .include "m328pdef.inc"
 
+.cseg
 .equ PD_OFF = (0<<PD7) | (0<<PD6) | (0<<PD5) | (0<<PD4)
 .equ PB_OFF = (0<<PB3) | (0<<PB2) | (0<<PB1) | (0<<PB0)
 
@@ -28,7 +29,7 @@ INICIO:
 
     LDI r16, 0x00
     STS TCCR2A, r16
-    LDI r16, 0x01
+    LDI r16, 0x05
     STS TCCR2B, r16
     LDI r16, 0x01
     STS TIMSK2, r16
@@ -66,56 +67,81 @@ PRINCIPAL:
     RJMP PRINCIPAL
 
 overflow:
-	in   r22, PORTD
-	andi r22, 0x0F          ; limpia PD7..PD4 (filas) a 0, preserva PD3..PD0
-	out  PORTD, r22
+	push r16
+    in   r16, SREG
+    push r16
 
-	in   r22, PORTB
-	andi r22, 0xF0          ; limpia PB3..PB0 (filas) a 0, preserva PB7..PB4 (columnas)
-	out  PORTB, r22
-
-    LPM  DIRECCION, Z+
-    INC  CONTADOR
-    CPI  CONTADOR, 8
-    BRLO skip_reset_ptr
+	; De ser necesario apagar las leds al principio
+    cli
+    lpm  DIRECCION, Z+
+    inc  CONTADOR
+    cpi  CONTADOR, 8
+    brlo skip_reset_ptr
       ldi  r30, low(H<<1)
-	  ldi  r31, high(H<<1)
-      LDI CONTADOR, 0
+      ldi  r31, high(H<<1)
+      ldi  CONTADOR, 0
+
 skip_reset_ptr:
+  
+    mov  r23, DIRECCION
+	com r23
 
+	lsl r23
+	lsl r23
+	lsl r23
+	lsl r23
+	lsl r23
+	lsl r23
 
-	COM DIRECCION
+	in r16, PORTB
+	or r23, r16
+    out  PORTB, r16
 
-    MOV  r23, DIRECCION
-    OUT  PORTB, r23
-    MOV  r23, DIRECCION 
-    LSR  r23
-    LSR  r23 
-    OUT  PORTC, r23
+	mov  r23, DIRECCION
+	com r23 
 
+	lsr r23
+	lsr r23
 
-   ; PORTD (filas altas en PD7..PD4)
-	mov  r21, SETin
-	lsl  r21
-	lsl  r21
-	lsl  r21
-	lsl  r21                 ; fila -> bits 7..4
-	in   r22, PORTD
-	andi r22, 0x0F           ; limpia solo PD7..PD4
-	or   r22, r21
-	out  PORTD, r22
+    in r16, PORTC
+	or r23, r16
+    out PORTC, r16
 
-	; PORTB (filas bajas en PB3..PB0)
-	in   r22, PORTB
-	andi r22, 0xF0           ; limpia solo PB3..PB0
-	or   r22, SETin          ; setea nibble bajo
-	out  PORTB, r22
-	;LSL r19
-    BRNE end_ovf
-      LDI  r19, 0b00000001
-	  MOV SETin, r19
-	end_ovf:
-    RETI
+  
+	mov   SETin, r19      
+
+	lsl SETin
+	lsl SETin
+	lsl SETin
+	lsl SETin
+
+	in r16, PORTD
+	and SETin, r16
+    out PORTD, r16
+
+	mov   SETin, r19  
+
+	lsr SETin
+	lsr SETin
+	lsr SETin
+	lsr SETin
+
+	ldi r16, 0b11110000
+	add SETin, r16
+
+	in r16, PORTB
+	and SETin, r16
+    out PORTB, r16
+
+	lsl r19
+    brne end_ovf
+      ldi  r19, 0b00000001
+    end_ovf:
+	sei
+	pop  r16
+    out  SREG, r16
+    pop  r16
+    reti
 
 
 
