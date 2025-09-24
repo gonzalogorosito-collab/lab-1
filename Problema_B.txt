@@ -1,4 +1,3 @@
-
 .include "m328pdef.inc"
 
 .equ PD_OFF = (0<<PD7) | (0<<PD6) | (0<<PD5) | (0<<PD4)
@@ -67,10 +66,13 @@ PRINCIPAL:
     RJMP PRINCIPAL
 
 overflow:
-	ldi r20, PD_OFF
-    OUT  PORTD, r20
-	ldi r20, PB_OFF
-	OUT  PORTB,	r20
+	in   r22, PORTD
+	andi r22, 0x0F          ; limpia PD7..PD4 (filas) a 0, preserva PD3..PD0
+	out  PORTD, r22
+
+	in   r22, PORTB
+	andi r22, 0xF0          ; limpia PB3..PB0 (filas) a 0, preserva PB7..PB4 (columnas)
+	out  PORTB, r22
 
     LPM  DIRECCION, Z+
     INC  CONTADOR
@@ -92,11 +94,23 @@ skip_reset_ptr:
     OUT  PORTC, r23
 
 
-    OUT  PORTD, SETin
-	
-	OUT  PORTB, SETin
+   ; PORTD (filas altas en PD7..PD4)
+	mov  r21, SETin
+	lsl  r21
+	lsl  r21
+	lsl  r21
+	lsl  r21                 ; fila -> bits 7..4
+	in   r22, PORTD
+	andi r22, 0x0F           ; limpia solo PD7..PD4
+	or   r22, r21
+	out  PORTD, r22
 
-	LSL r19
+	; PORTB (filas bajas en PB3..PB0)
+	in   r22, PORTB
+	andi r22, 0xF0           ; limpia solo PB3..PB0
+	or   r22, SETin          ; setea nibble bajo
+	out  PORTB, r22
+	;LSL r19
     BRNE end_ovf
       LDI  r19, 0b00000001
 	  MOV SETin, r19
