@@ -1,8 +1,8 @@
 
 .include "m328pdef.inc"
 
-.equ PD_OFF = (1<<PD7) | (1<<PD6) | (1<<PD5) | (1<<PD4)
-.equ PB_OFF = (1<<PB3) | (1<<PB2) | (1<<PB1) | (1<<PB0)
+.equ PD_OFF = (0<<PD7) | (0<<PD6) | (0<<PD5) | (0<<PD4)
+.equ PB_OFF = (0<<PB3) | (0<<PB2) | (0<<PB1) | (0<<PB0)
 
 .def CONTADOR = r24
 .def DIRECCION = r18
@@ -14,8 +14,6 @@
     .org 0x0012
     rjmp overflow
 
-    .org 0x000A
-    rjmp botons
 
 	.org 0x0100
 		rjmp INICIO
@@ -36,18 +34,7 @@ INICIO:
     LDI r16, 0x01
     STS TIMSK2, r16
 
-    ldi r16, 0b00011000
-    out DDRC, r16
-
-    lds  r16, PCMSK1
-    ori  r16, (1<<4) | (1<<3)
-    sts  PCMSK1, r16
-
-   
-    lds  r16, PCICR
-    ori  r16, (1<<PCIE1)
-    sts  PCICR, r16
-
+ 
     sei
 
     ldi  r30, low(H<<1)
@@ -63,18 +50,20 @@ INICIO:
     ldi r16, 0xFF
     out DDRC, r16
 
-	ldi SETin, 0xFE
+
+	ldi r19, 0b00000001
+
+	MOV SETin, r19
+	ldi CONTADOR, 0
 
     LDI DIRECCION, 0b00010000 ;Para la mascara de referencia
     OUT PORTD, DIRECCION ; PORTD = 00010000
 	
-    ldi r19, 1
+    
 
     JMP PRINCIPAL
 
 PRINCIPAL:
-	cbi PORTD, PD4
-	sbi PORTB, PB5
     RJMP PRINCIPAL
 
 overflow:
@@ -92,108 +81,28 @@ overflow:
       LDI CONTADOR, 0
 skip_reset_ptr:
 
+
+	COM DIRECCION
+
     MOV  r23, DIRECCION
-
-	LSL  r23
-    LSL  r23
-    LSL  r23
-    LSL  r23 ;Movemos los primeros 4 a los primeros 4 de PIND
-	LSL  r23
-    LSL  r23 ;Movemos los primeros 4 a los primeros 4 de PIND
-
     OUT  PORTB, r23
-
     MOV  r23, DIRECCION 
-
     LSR  r23
-    LSR  r23 ;Movemos los ultimos 4 a los primeos 4 de PINC
-
+    LSR  r23 
     OUT  PORTC, r23
 
-    OUT  PORTD, r17
 
-    LSL  r17
+    OUT  PORTD, SETin
+	
+	OUT  PORTB, SETin
+
+	LSL r19
     BRNE end_ovf
-      LDI  r17, 0x01
-end_ovf:
+      LDI  r19, 0b00000001
+	  MOV SETin, r19
+	end_ovf:
     RETI
 
-botons:
-    in   r0, SREG        
-    push r0
-    push r16
-    push DIRECCION
- 
-    SBIC PINC, 4
-    RJMP continuar1
-    INC  r19
-continuar1:
-    SBIC PINC, 3
-    RJMP continuar
-    DEC  r19
-
-continuar:
-    CPI  r19, 10
-    BRNE skip_wrap2
-    ldi  r19, 1
-skip_wrap2:
-    CPI  r19, 0
-    BRNE skip_wrap
-    LDI  r19, 9
-
-skip_wrap:
-    CPI  r19, 1
-    BRNE UNO
-    LDI  r25, low(H<<1)
-    LDI  r26, high(H<<1)
-UNO:
-    CPI  r19, 2
-    BRNE DOS
-    LDI  r25, low(O<<1)
-    LDI  r26, high(O<<1)
-DOS:
-    CPI  r19, 3
-    BRNE TRES
-    LDI  r25, low(L<<1)
-    LDI  r26, high(L<<1)
-TRES:
-    CPI  r19, 4
-    BRNE cuatro
-    LDI  r25, low(A<<1)
-    LDI  r26, high(A<<1)
-cuatro:
-    CPI  r19, 5
-    BRNE cinco      
-    LDI  r25, low(J<<1)
-    LDI  r26, high(J<<1)
-cinco:
-    CPI  r19, 6
-    BRNE seis
-    LDI  r25, low(E<<1) 
-    LDI  r26, high(E<<1)
-seis:
-    CPI  r19, 7
-    BRNE siete
-    LDI  r25, low(S<<1)
-    LDI  r26, high(S<<1)
-siete:
-    CPI  r19, 8
-    BRNE ocho
-    LDI  r25, low(U<<1)
-    LDI  r26, high(U<<1)
-ocho:
-    CPI  r19, 9
-    BRNE fin
-    LDI  r25, low(S<<1)
-    LDI  r26, high(S<<1)
-
- 
-fin:
-    pop  DIRECCION
-    pop  r16
-    pop  r0
-    out  SREG, r0
-    RETI
 
 
 
@@ -224,5 +133,3 @@ fin:
 	.org 0x0556
 		U:
 			.db 0b11111111, 0b10000000, 0b10000000, 0b10000000, 0b10000000, 0b10000000, 0b11111111, 0b11111111
-
-
