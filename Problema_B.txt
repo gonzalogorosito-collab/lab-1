@@ -1,8 +1,6 @@
 .include "m328pdef.inc"
 
 .cseg
-.equ PD_OFF = (0<<PD7) | (0<<PD6) | (0<<PD5) | (0<<PD4)
-.equ PB_OFF = (0<<PB3) | (0<<PB2) | (0<<PB1) | (0<<PB0)
 
 .def CONTADOR = r24
 .def DIRECCION = r18
@@ -29,15 +27,18 @@ INICIO:
 
     LDI r16, 0x00
     STS TCCR2A, r16
-    LDI r16, 0x05
+    LDI r16, 0x01
     STS TCCR2B, r16
     LDI r16, 0x01
     STS TIMSK2, r16
 
+	lds  r16, PCICR
+    ori  r16, (1<<PCIE2)
+    sts  PCICR, r16
  
     sei
 
-    ldi  r30, low(H<<1)
+    ldi  r30, low(H<1)
     ldi  r31, high(H<<1)
 
 
@@ -52,27 +53,24 @@ INICIO:
 
 
 	ldi r19, 0b00000001
-
-	MOV SETin, r19
+	mov   SETin, r19     
 	ldi CONTADOR, 0
-
-    LDI DIRECCION, 0b00010000 ;Para la mascara de referencia
-    OUT PORTD, DIRECCION ; PORTD = 00010000
-	
-    
 
     JMP PRINCIPAL
 
+
 PRINCIPAL:
     RJMP PRINCIPAL
+
+
 
 overflow:
 	push r16
     in   r16, SREG
     push r16
 
-	; De ser necesario apagar las leds al principio
-    cli
+
+    
     lpm  DIRECCION, Z+
     inc  CONTADOR
     cpi  CONTADOR, 8
@@ -80,70 +78,72 @@ overflow:
       ldi  r30, low(H<<1)
       ldi  r31, high(H<<1)
       ldi  CONTADOR, 0
-
 skip_reset_ptr:
   
     mov  r23, DIRECCION
 	com r23
 
-	lsl r23
-	lsl r23
-	lsl r23
-	lsl r23
-	lsl r23
-	lsl r23
+		lsl r23
+		lsl r23
+		lsl r23
+		lsl r23
+		lsl r23
+		lsl r23
 
-	in r16, PORTB
-	or r23, r16
-    out  PORTB, r16
+		in r16, PORTB
+		or r23, r16
+		out  PORTB, r16
 
-	mov  r23, DIRECCION
+ 	mov  r23, DIRECCION
 	com r23 
 
-	lsr r23
-	lsr r23
+		lsr r23
+		lsr r23
 
-    in r16, PORTC
-	or r23, r16
-    out PORTC, r16
+		out PORTC, r23
 
   
-	mov   SETin, r19      
+	rcall prender
 
-	lsl SETin
-	lsl SETin
-	lsl SETin
-	lsl SETin
 
-	in r16, PORTD
-	and SETin, r16
-    out PORTD, r16
-
-	mov   SETin, r19  
-
-	lsr SETin
-	lsr SETin
-	lsr SETin
-	lsr SETin
-
-	ldi r16, 0b11110000
-	add SETin, r16
-
-	in r16, PORTB
-	and SETin, r16
-    out PORTB, r16
-
-	lsl r19
-    brne end_ovf
-      ldi  r19, 0b00000001
-    end_ovf:
-	sei
 	pop  r16
     out  SREG, r16
     pop  r16
     reti
 
 
+Prender:
+	mov   SETin, r19      
+
+		lsl SETin
+		lsl SETin
+		lsl SETin
+		lsl SETin
+
+		in r16, PIND
+		and SETin, r16
+		;inc r16
+		out PORTD, r16
+
+	
+	mov   SETin, r19 
+
+		lsr SETin
+		lsr SETin
+		lsr SETin
+		lsr SETin
+
+		in r16, PINB
+		and SETin, r16
+		;inc r16
+		out PORTB, r16
+
+		lsl r19
+		brne end_ovf
+		ldi  r19, 0b00000001
+		end_ovf:
+
+	ret
 
 
     .org 0x0500
