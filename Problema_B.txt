@@ -65,7 +65,7 @@ INICIO:
 
 	LDI r16, 0x00
     STS TCCR1A, r16
-    LDI r16, 0x03
+    LDI r16, 0x05
     STS TCCR1B, r16
     LDI r16, 0x01
     STS TIMSK1, r16
@@ -432,4 +432,25 @@ usart_udre_exit:
 
 
 
+.org 0x700 
+	MSG_ERROR: 
+		.db "Error: comando no encontrado ", 0x0A, 0x0A, 0
+	
+	MSG_MENU:
+		.db "Estado actual: Standby", 0x0A, 0x0A
+		.db "Elija una opcion:", 0x0A
+		.db "[1] -> Carga ligera            ", 0x0A
+		.db "[2] -> Carga mediana           ", 0x0A
+		.db "[3] -> Carga pesada            ", 0x0A
+		.db "[A] -> Iniciar proceso ", 0x0A, 0x0A, 0
+			
+	MSG_STATE_1: .db "Estado actual: Alimentación", 0x0A, 0x0A, 0  
+	MSG_STATE_2: .db "Estado actual: Espera", 0x0A, 0x0A, 0
+	MSG_STATE_3: .db "Estado actual: Punzonado ", 0x0A, 0x0A, 0
+	MSG_STATE_4: .db "Estado actual: Espera 2", 0x0A, 0x0A, 0
+	MSG_STATE_5: .db "Estado actual: Extracción", 0x0A, 0x0A, 0
+
+	MSG_LOAD_0:	 .db "Carga configurada: Ligera ", 0x0A, 0
+	MSG_LOAD_1:	 .db "Carga configurada: Mediana", 0x0A, 0
+	MSG_LOAD_2:	 .db "Carga configurada: Pesada ", 0x0A, 0
 
