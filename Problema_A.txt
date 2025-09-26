@@ -82,7 +82,6 @@
 		tx_buffer: .byte TX_BUF_SIZE          ; circular buffer storage
 		tx_head:   .byte 1                    ; enqueue index
 		tx_tail:   .byte 1                    ; dequeue index
-		Comenzar: .byte 1
 
 
 	.cseg
